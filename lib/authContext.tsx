@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, 
   signOut as firebaseSignOut 
 } from 'firebase/auth';
-import { auth } from './firebase';
+import { auth, isInitialized } from './firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -25,16 +25,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Listener temps réel pour l'état d'authentification
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    // Si Firebase n'est pas configuré, on arrête le chargement immédiatement
+    // pour ne pas bloquer l'UI sur un spinner infini.
+    if (!isInitialized) {
+      console.warn("Auth provider skipping init: Firebase not configured");
       setLoading(false);
-    });
+      return;
+    }
 
-    return () => unsubscribe();
+    try {
+      // Listener temps réel pour l'état d'authentification
+      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
+    } catch (error) {
+      console.error("Auth listener error:", error);
+      setLoading(false);
+    }
   }, []);
 
   const logout = async () => {
+    if (!isInitialized) return;
     try {
       await firebaseSignOut(auth);
     } catch (error) {

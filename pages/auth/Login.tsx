@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { auth, isInitialized } from '../../lib/firebase';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { useNavigate, Link } from 'react-router-dom';
@@ -14,8 +14,14 @@ export const Login = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+
+    if (!isInitialized) {
+      setError("Erreur de configuration : Firebase n'est pas initialisé. Vérifiez vos variables d'environnement.");
+      return;
+    }
+
+    setLoading(true);
 
     try {
       await signInWithEmailAndPassword(auth, email, password);

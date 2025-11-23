@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
-import { db } from './firebase';
+import { db, isInitialized } from './firebase';
 import { useAuth } from './authContext';
 
 export interface UserSettings {
@@ -39,14 +39,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !isInitialized) {
       setSettings(null);
-      setLoading(false);
-      return;
-    }
-
-    if (!db.type) { 
-      // Si Firebase n'est pas initialisé correctement (erreur API Key)
       setLoading(false);
       return;
     }
@@ -83,7 +77,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [user]);
 
   const updateSettings = async (newSettings: Partial<UserSettings>) => {
-    if (!user) return;
+    if (!user || !isInitialized) return;
     try {
       await setDoc(doc(db, 'users', user.uid, 'settings', 'preferences'), newSettings, { merge: true });
     } catch (e) {
@@ -94,18 +88,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const acceptCookies = async () => {
     localStorage.setItem('cookie_consent', 'true');
-    if (user) {
+    if (user && isInitialized) {
       await updateSettings({ cookie_consent: true });
     }
   };
 
   const updateUserProfile = async (name: string) => {
-    if (!user) return;
+    if (!user || !isInitialized) return;
     
     // Génération automatique d'avatar (DiceBear)
-    // Pas de stockage, URL publique déterministe
     const encodedName = encodeURIComponent(name);
-    // Utilisation du style 'initials' avec des couleurs cohérentes avec le thème
     const avatarUrl = `https://api.dicebear.com/9.x/initials/svg?seed=${encodedName}&backgroundColor=4f46e5,db2777,16a34a&textColor=ffffff`;
 
     try {
@@ -118,7 +110,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Reload pour l'UI
         await user.reload();
 
-        // 2. Mise à jour Firestore pour persistance locale à l'app
+        // 2. Mise à jour Firestore
         await updateSettings({
         display_name: name,
         avatar_url: avatarUrl
@@ -134,12 +126,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const exportData = async () => {
      console.log("Export triggered");
-     // Placeholder pour l'export JSON
   };
 
   const deleteAccount = async () => {
      console.log("Delete triggered");
-     // Placeholder pour la suppression
   };
 
   return (

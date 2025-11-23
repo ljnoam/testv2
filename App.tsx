@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/authContext';
 import { DataProvider } from './lib/dataContext';
 import { ThemeProvider } from './lib/themeContext';
 import { SettingsProvider } from './lib/settingsContext';
+import { isInitialized } from './lib/firebase';
 import { Login } from './pages/auth/Login';
 import { Register } from './pages/auth/Register';
 import { Dashboard } from './pages/dashboard/Dashboard';
@@ -48,12 +49,22 @@ const MainLayout = () => {
   );
 };
 
+const ConfigWarning = () => {
+  if (isInitialized) return null;
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white text-xs px-2 py-1 text-center font-bold">
+      Configuration Firebase manquante. Vérifiez vos variables d'environnement (API Key, etc.).
+    </div>
+  );
+};
+
 const App = () => {
   return (
     <ThemeProvider>
       <AuthProvider>
         <SettingsProvider>
           <DataProvider>
+            <ConfigWarning />
             <Router>
               <Routes>
                 {/* Routes Publiques (Login/Register) */}

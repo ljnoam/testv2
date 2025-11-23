@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { auth, db } from '../../lib/firebase';
+import { auth, db, isInitialized } from '../../lib/firebase';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -22,13 +22,19 @@ export const Register = () => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
     if (!acceptTerms) {
         setError("Vous devez accepter les conditions d'utilisation.");
         return;
     }
 
+    if (!isInitialized) {
+        setError("Configuration manquante : impossible de créer un compte.");
+        return;
+    }
+
     setLoading(true);
-    setError(null);
 
     try {
       // 1. Auth User
