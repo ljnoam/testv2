@@ -103,7 +103,7 @@ const ScoreGauge = ({ score }: { score: number }) => {
     }
 
     return (
-        <div className="relative w-52 h-52 mx-auto mb-8 flex items-center justify-center select-none">
+        <div className="relative w-56 h-56 mx-auto mb-8 flex items-center justify-center select-none">
              {/* Glow behind */}
              <div className="absolute inset-0 rounded-full blur-3xl opacity-20" style={{ backgroundColor: gradientFrom }}></div>
              
@@ -125,9 +125,9 @@ const ScoreGauge = ({ score }: { score: number }) => {
                     className="transition-all duration-1000 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
                 />
              </svg>
-             <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-                 <span className={`text-6xl font-black tracking-tighter leading-none ${color}`}>{score}</span>
-                 <span className="text-xs uppercase font-bold text-slate-400 mt-2 tracking-widest">Stabilité</span>
+             <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pt-1">
+                 <span className={`text-5xl font-black tracking-tighter leading-none ${color}`}>{score}</span>
+                 <span className="text-[10px] uppercase font-bold text-slate-400 mt-2 tracking-widest">Stabilité</span>
              </div>
         </div>
     );
