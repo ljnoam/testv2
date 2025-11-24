@@ -2,28 +2,6 @@ import { GoogleGenAI } from "@google/genai";
 import { doc, setDoc, getDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 
-// Supporte Vite (import.meta.env), Next.js/CRA (process.env)
-const getEnv = (key: string): string | undefined => {
-  try {
-    // 1. Essayer Vite (si disponible)
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[`VITE_${key}`]) {
-      // @ts-ignore
-      return import.meta.env[`VITE_${key}`];
-    }
-    
-    // 2. Essayer process.env (Standard Node/CRA/Next)
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env[`NEXT_PUBLIC_${key}`] || 
-             process.env[`REACT_APP_${key}`] || 
-             process.env[key];
-    }
-  } catch (e) {
-    console.warn("Error reading env vars:", e);
-  }
-  return undefined;
-};
-
 // Interfaces for Data needed by AI
 interface TransactionData {
   amount: number;
@@ -57,7 +35,11 @@ export interface FinancialReport {
   score: number;
 }
 
-const getApiKey = () => getEnv("VITE_GEMINI_API_KEY");
+// Direct static access for Vite
+const getApiKey = () => {
+    // @ts-ignore
+    return import.meta.env.VITE_GEMINI_API_KEY;
+};
 
 export const aiService = {
   
@@ -74,7 +56,6 @@ export const aiService = {
     if (!userId) throw new Error("User ID required");
 
     // 2. DATA GATHERING & PSEUDONYMIZATION
-    // We extract only numbers and categories. No PII (names, emails).
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
@@ -87,8 +68,8 @@ export const aiService = {
         .map((t: any) => ({
             amount: t.amount,
             type: t.type,
-            category: t.category, // Category name is generic enough (Alimentation, etc.)
-            date: new Date(t.date).toISOString().split('T')[0] // Only date, no time
+            category: t.category, 
+            date: new Date(t.date).toISOString().split('T')[0]
         }));
 
     const budgets: BudgetData[] = dataContext.budgets.map((b: any) => ({
@@ -97,7 +78,7 @@ export const aiService = {
     }));
 
     const goals: GoalData[] = dataContext.savingsGoals.map((g: any) => ({
-        name: g.name, // Goal name might contain info, but usually generic "Car", "Holiday"
+        name: g.name,
         targetAmount: g.targetAmount,
         currentAmount: g.currentAmount
     }));
@@ -113,11 +94,9 @@ export const aiService = {
     const report = await callGeminiAgent(payload);
 
     // 4. SAVE REPORT TO FIRESTORE
-    // Use subcollection under user to ensure permissions allow writing (users usually have write access to their own doc)
     const reportId = Date.now().toString();
     const reportRef = doc(db, 'users', userId, 'financial_reports', reportId);
     
-    // Add timestamp to the object before saving
     const savedReport = { ...report, timestamp: Date.now() };
     await setDoc(reportRef, savedReport);
 
@@ -134,7 +113,7 @@ export const aiService = {
         const snapshot = await getDocs(q);
         return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as FinancialReport));
       } catch (e) {
-          console.warn("Could not fetch history (collection might not exist yet)", e);
+          console.warn("Could not fetch history", e);
           return [];
       }
   }
@@ -145,7 +124,7 @@ export const aiService = {
  */
 async function callGeminiAgent(data: any): Promise<FinancialReport> {
     const apiKey = getApiKey();
-    if (!apiKey) throw new Error("Clé API manquante (process.env.API_KEY).");
+    if (!apiKey) throw new Error("Clé API Gemini manquante (VITE_GEMINI_API_KEY).");
 
     const ai = new GoogleGenAI({ apiKey });
     
