@@ -144,6 +144,54 @@
       /* Hide scrollbar */
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* --- Animation Definitions --- */
+      @keyframes slideUp {
+        0% { transform: translateY(20px); opacity: 0; }
+        100% { transform: translateY(0); opacity: 1; }
+      }
+
+      @keyframes scaleIn {
+        0% { transform: scale(0.95); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+
+      @keyframes shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+      }
+
+      @keyframes pulseGreen {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.02); box-shadow: 0 0 20px rgba(74, 222, 128, 0.5); }
+      }
+
+      /* --- Utility Classes --- */
+      .animate-enter {
+        animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        opacity: 0; /* Ensures hidden before animation */
+      }
+
+      .animate-scale-in {
+        animation: scaleIn 0.2s ease-out forwards;
+      }
+
+      .animate-shimmer {
+        animation: shimmer 2s linear infinite;
+        background-size: 1000px 100%;
+      }
+
+      .animate-pulse-green {
+        animation: pulseGreen 0.5s ease-in-out;
+      }
+      
+      /* Stagger Delays */
+      .stagger-1 { animation-delay: 50ms; }
+      .stagger-2 { animation-delay: 100ms; }
+      .stagger-3 { animation-delay: 150ms; }
+      .stagger-4 { animation-delay: 200ms; }
+      .stagger-5 { animation-delay: 250ms; }
+
     </style>
   <script type="importmap">
 {
@@ -155,7 +203,8 @@
     "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
     "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
     "vite": "https://aistudiocdn.com/vite@^7.2.4",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
   }
 }
 </script>
@@ -168,10 +217,27 @@
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then(registration => {
-            console.log('SW registered: ', registration);
+            console.log('SW registered');
+            registration.onupdatefound = () => {
+              const installingWorker = registration.installing;
+              installingWorker.onstatechange = () => {
+                if (installingWorker.state === 'installed') {
+                  if (navigator.serviceWorker.controller) {
+                    console.log('New content available; refreshing...');
+                  }
+                }
+              };
+            };
           }).catch(registrationError => {
             console.log('SW registration failed: ', registrationError);
           });
+        });
+
+        let refreshing;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshing) return;
+          window.location.reload();
+          refreshing = true;
         });
       }
     </script>

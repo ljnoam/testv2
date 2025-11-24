@@ -13,13 +13,15 @@ import { DonutChart } from '../../components/ui/Charts';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { Skeleton } from '../../components/ui/Skeleton';
 import { Link } from 'react-router-dom';
 
 export const Dashboard = () => {
   const { user } = useAuth();
-  const { stats, transactions, addTransaction, categories, loading } = useData();
+  const { stats, transactions, addTransaction, categories, loading, getCategoryStyles } = useData();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [justAdded, setJustAdded] = useState(false);
   
   // UI State
   const [showBalance, setShowBalance] = useState(true);
@@ -27,7 +29,7 @@ export const Dashboard = () => {
   // Form State
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<Category>(categories[0] || 'Alimentation');
+  const [category, setCategory] = useState<string>(categories[0]?.name || 'Alimentation');
   const [type, setType] = useState<TransactionType>('expense');
 
   const handleAddSubmit = async (e: React.FormEvent) => {
@@ -39,13 +41,18 @@ export const Dashboard = () => {
         await addTransaction({
           amount: parseFloat(amount),
           title,
-          category,
+          category, // category is just the string name
           type,
           date: new Date()
         });
         setIsAddModalOpen(false);
         setAmount('');
         setTitle('');
+        
+        // Trigger pulse animation
+        setJustAdded(true);
+        setTimeout(() => setJustAdded(false), 500);
+
     } catch (error) {
         console.error("Error adding transaction", error);
     } finally {
@@ -68,12 +75,36 @@ export const Dashboard = () => {
     color: ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#60a5fa', '#c084fc'][index % 7]
   }));
 
+  // --- SKELETON LOADING STATE ---
   if (loading) {
       return (
-          <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-             <div className="animate-pulse flex flex-col items-center">
-                 <div className="h-12 w-12 bg-indigo-200/50 rounded-full mb-4"></div>
-                 <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded"></div>
+          <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-6 space-y-8">
+             {/* Header Skeleton */}
+             <div className="flex items-center gap-3">
+                 <Skeleton className="h-10 w-10 rounded-full" />
+                 <div className="space-y-2">
+                     <Skeleton className="h-3 w-20" />
+                     <Skeleton className="h-4 w-32" />
+                 </div>
+             </div>
+
+             {/* Main Card Skeleton */}
+             <Skeleton className="w-full h-48 rounded-[2.5rem]" />
+
+             {/* Actions Skeleton */}
+             <div className="flex gap-4 justify-between">
+                 <Skeleton className="h-20 w-full rounded-2xl" />
+                 <Skeleton className="h-20 w-full rounded-2xl" />
+                 <Skeleton className="h-20 w-full rounded-2xl" />
+             </div>
+
+             {/* Chart Skeleton */}
+             <Skeleton className="w-full h-40 rounded-3xl" />
+             
+             {/* List Skeleton */}
+             <div className="space-y-3">
+                 <Skeleton className="h-16 w-full rounded-2xl" />
+                 <Skeleton className="h-16 w-full rounded-2xl" />
              </div>
           </div>
       );
@@ -83,15 +114,14 @@ export const Dashboard = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-24 relative overflow-x-hidden font-sans">
       
       {/* Background Decor */}
-      <div className="absolute top-0 left-0 w-full h-[500px] bg-indigo-50/50 dark:bg-indigo-900/10 -z-10 rounded-b-[40px] pointer-events-none"></div>
-      <div className="absolute top-[-100px] right-[-100px] w-64 h-64 bg-purple-200/30 dark:bg-purple-900/20 rounded-full blur-3xl -z-10"></div>
-      <div className="absolute top-[100px] left-[-50px] w-48 h-48 bg-blue-200/30 dark:bg-blue-900/20 rounded-full blur-3xl -z-10"></div>
+      <div className="absolute top-0 left-0 w-full h-[500px] bg-indigo-50/50 dark:bg-indigo-900/10 -z-10 rounded-b-[40px] pointer-events-none transition-all duration-1000 ease-in-out"></div>
+      <div className="absolute top-[-100px] right-[-100px] w-64 h-64 bg-purple-200/30 dark:bg-purple-900/20 rounded-full blur-3xl -z-10 animate-pulse"></div>
 
       {/* Header */}
-      <header className="px-6 py-5 flex justify-between items-center sticky top-0 z-30 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-md">
+      <header className="px-6 py-5 flex justify-between items-center sticky top-0 z-30 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-md animate-enter">
         <div className="flex items-center gap-3">
             <Link to="/profile" className="relative group">
-                <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-[2px]">
+                <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-[2px] hover:scale-105 transition-transform">
                     <div className="h-full w-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center overflow-hidden">
                         {user?.photoURL ? (
                             <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
@@ -114,14 +144,14 @@ export const Dashboard = () => {
 
       <main className="px-5 space-y-8 mt-2">
         {/* Main Card */}
-        <div className="relative w-full rounded-[2.5rem] bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-6 text-white shadow-xl shadow-slate-200/50 dark:shadow-black/20 overflow-hidden group">
+        <div className={`relative w-full rounded-[2.5rem] bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-6 text-white shadow-xl shadow-slate-200/50 dark:shadow-black/20 overflow-hidden group animate-enter stagger-1 ${justAdded ? 'animate-pulse-green' : ''}`}>
             
             {/* Glass Effect Overlay */}
             <div className="absolute inset-0 bg-white/[0.03] backdrop-blur-[1px]"></div>
             
             {/* Decorative Circles */}
-            <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
-            <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/20 rounded-full blur-xl"></div>
+            <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-2xl group-hover:scale-110 transition-transform duration-700"></div>
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/20 rounded-full blur-xl group-hover:scale-110 transition-transform duration-700"></div>
 
             <div className="relative z-10">
                 <div className="flex justify-between items-start mb-6">
@@ -130,7 +160,7 @@ export const Dashboard = () => {
                             Solde total
                             <button 
                                 onClick={() => setShowBalance(!showBalance)}
-                                className="opacity-70 hover:opacity-100 transition-opacity"
+                                className="opacity-70 hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded-full"
                             >
                                 {showBalance ? <EyeIcon className="w-4 h-4" /> : <EyeOffIcon className="w-4 h-4" />}
                             </button>
@@ -178,24 +208,24 @@ export const Dashboard = () => {
         </div>
 
         {/* Quick Actions (Visual Only) */}
-        <div className="flex justify-between gap-4 px-2">
+        <div className="flex justify-between gap-4 px-2 animate-enter stagger-2">
             <button 
                 onClick={() => setIsAddModalOpen(true)}
                 className="flex flex-col items-center gap-2 group w-full"
             >
-                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-sm border border-indigo-100 dark:border-indigo-800 group-active:scale-95 transition-all">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-sm border border-indigo-100 dark:border-indigo-800 group-active:scale-90 transition-all duration-200">
                     <PlusIcon className="w-6 h-6" />
                 </div>
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Ajouter</span>
             </button>
             <Link to="/stats" className="flex flex-col items-center gap-2 group w-full">
-                <div className="w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shadow-sm border border-slate-100 dark:border-slate-800 group-active:scale-95 transition-all">
+                <div className="w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shadow-sm border border-slate-100 dark:border-slate-800 group-active:scale-90 transition-all duration-200">
                     <ArrowUpRightIcon className="w-6 h-6" />
                 </div>
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Analyse</span>
             </Link>
              <Link to="/savings" className="flex flex-col items-center gap-2 group w-full">
-                <div className="w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shadow-sm border border-slate-100 dark:border-slate-800 group-active:scale-95 transition-all">
+                <div className="w-14 h-14 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shadow-sm border border-slate-100 dark:border-slate-800 group-active:scale-90 transition-all duration-200">
                     <ArrowDownLeftIcon className="w-6 h-6" />
                 </div>
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Épargne</span>
@@ -203,7 +233,7 @@ export const Dashboard = () => {
         </div>
 
         {/* Analytics Section */}
-        <section>
+        <section className="animate-enter stagger-3">
           <div className="flex justify-between items-center mb-4 px-1">
              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Dépenses</h3>
              <Link to="/stats" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80">
@@ -218,9 +248,9 @@ export const Dashboard = () => {
                 </div>
                 <div className="flex-1 pl-6 space-y-3">
                     {donutData.slice(0, 3).map((d, i) => (
-                        <div key={i} className="flex items-center justify-between">
+                        <div key={i} className="flex items-center justify-between animate-enter" style={{animationDelay: `${i*100}ms`}}>
                             <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }}></span>
+                                <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: d.color }}></span>
                                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate max-w-[80px]">{d.label}</span>
                             </div>
                             <span className="text-xs font-bold text-slate-900 dark:text-white">{Math.round(d.value)}€</span>
@@ -240,7 +270,7 @@ export const Dashboard = () => {
         </section>
 
         {/* Recent Transactions */}
-        <section className="pb-8">
+        <section className="pb-8 animate-enter stagger-4">
            <div className="flex justify-between items-end mb-4 px-1">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">Récemment</h3>
               <Link to="/transactions" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5 hover:gap-1 transition-all">
@@ -249,20 +279,13 @@ export const Dashboard = () => {
            </div>
            
            <div className="flex flex-col gap-3">
-             {transactions.slice(0, 5).map(t => (
-               <div key={t.id} className="group bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:shadow-md hover:scale-[1.01] active:scale-[0.99]">
+             {transactions.slice(0, 5).map((t, index) => {
+               const styles = getCategoryStyles(t.category);
+               return (
+               <div key={t.id} style={{ animationDelay: `${index * 50}ms` }} className="animate-enter group bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex justify-between items-center transition-all hover:shadow-md hover:scale-[1.01] active:scale-[0.98]">
                   <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg shadow-sm ${
-                        t.type === 'income' 
-                        ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400' 
-                        : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
-                    }`}>
-                       {t.category.includes('Alimentation') ? '🍔' : 
-                        t.category.includes('Transport') ? '🚗' : 
-                        t.category.includes('Loisirs') ? '🍿' : 
-                        t.category.includes('Santé') ? '💊' :
-                        t.category.includes('Shopping') ? '🛍️' :
-                        t.category.includes('Salaire') ? '💰' : '📄'}
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg shadow-sm ${styles.color} transition-transform group-hover:rotate-12`}>
+                       {styles.icon}
                     </div>
                     <div>
                       <p className="font-bold text-slate-900 dark:text-slate-100 text-sm">{t.title}</p>
@@ -273,7 +296,7 @@ export const Dashboard = () => {
                     {t.type === 'income' ? '+' : '-'}{t.amount} €
                   </span>
                </div>
-             ))}
+             )})}
              {transactions.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-10 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
                     <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-3">
@@ -289,7 +312,7 @@ export const Dashboard = () => {
       {/* Floating Action Button */}
       <button 
         onClick={() => setIsAddModalOpen(true)}
-        className="fixed bottom-24 right-6 bg-slate-900 dark:bg-white text-white dark:text-slate-900 p-4 rounded-full shadow-lg shadow-black/20 hover:scale-110 active:scale-90 transition-all z-40 flex items-center justify-center"
+        className="fixed bottom-24 right-6 bg-slate-900 dark:bg-white text-white dark:text-slate-900 p-4 rounded-full shadow-lg shadow-black/20 hover:scale-110 active:scale-90 transition-all z-40 flex items-center justify-center animate-enter stagger-5"
       >
         <PlusIcon className="w-6 h-6" />
       </button>
@@ -300,14 +323,14 @@ export const Dashboard = () => {
            <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl">
               <button
                 type="button"
-                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${type === 'expense' ? 'bg-white dark:bg-slate-700 shadow-sm text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${type === 'expense' ? 'bg-white dark:bg-slate-700 shadow-sm text-red-600 dark:text-red-400 scale-100' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 scale-95'}`}
                 onClick={() => setType('expense')}
               >
                 Dépense
               </button>
               <button
                 type="button"
-                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${type === 'income' ? 'bg-white dark:bg-slate-700 shadow-sm text-green-600 dark:text-green-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${type === 'income' ? 'bg-white dark:bg-slate-700 shadow-sm text-green-600 dark:text-green-400 scale-100' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 scale-95'}`}
                 onClick={() => setType('income')}
               >
                 Revenu
@@ -318,7 +341,9 @@ export const Dashboard = () => {
              <label className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2 block">Montant</label>
              <div className="relative inline-block w-full max-w-[200px]">
                 <input 
-                  type="number" 
+                  type="number"
+                  inputMode="decimal" // Force numeric keyboard
+                  pattern="[0-9]*"
                   step="0.01"
                   value={amount} 
                   onChange={e => setAmount(e.target.value)}
@@ -346,10 +371,10 @@ export const Dashboard = () => {
                     <select 
                         value={category} 
                         onChange={e => setCategory(e.target.value as Category)}
-                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 appearance-none"
+                        className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 appearance-none transition-shadow"
                     >
                         {categories.map(c => (
-                        <option key={c} value={c}>{c}</option>
+                        <option key={c.id} value={c.name}>{c.icon} {c.name}</option>
                         ))}
                     </select>
                 </div>

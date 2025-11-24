@@ -1,7 +1,7 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/authContext';
-import { DataProvider } from './lib/dataContext';
+import { DataProvider, useData } from './lib/dataContext';
 import { ThemeProvider } from './lib/themeContext';
 import { SettingsProvider } from './lib/settingsContext';
 import { isInitialized } from './lib/firebase';
@@ -13,9 +13,24 @@ import { Stats } from './pages/stats/Stats';
 import { Savings } from './pages/savings/Savings';
 import { Insights } from './pages/insights/Insights';
 import { Profile } from './pages/profile/Profile';
+import { Assistant } from './pages/assistant/Assistant';
 import { PrivacyPolicy, Terms, Security } from './pages/legal/Legal';
 import { BottomNav } from './components/layout/BottomNav';
 import { CookieBanner } from './components/layout/CookieBanner';
+import { AlertTriangleIcon } from './components/ui/Icons';
+import { ScrollToTop } from './components/layout/ScrollToTop';
+
+const OfflineBadge = () => {
+  const { isOfflineMode } = useData();
+  if (!isOfflineMode) return null;
+  
+  return (
+    <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500 text-white text-xs font-bold px-2 py-1 text-center flex items-center justify-center gap-2 shadow-md animate-in slide-in-from-top">
+      <AlertTriangleIcon className="w-3 h-3" />
+      Mode Hors-ligne (PWA) - Les modifications sont sauvegardées localement.
+    </div>
+  );
+};
 
 const PrivateRoute = () => {
   const { user, loading } = useAuth();
@@ -41,6 +56,7 @@ const MainLayout = () => {
   return (
     <div className="antialiased min-h-screen bg-background text-foreground transition-colors duration-300">
       <div className="relative min-h-screen w-full mx-auto bg-background">
+        <OfflineBadge />
         <Outlet />
         <BottomNav />
         <CookieBanner />
@@ -66,6 +82,7 @@ const App = () => {
           <DataProvider>
             <ConfigWarning />
             <Router>
+              <ScrollToTop />
               <Routes>
                 {/* Routes Publiques (Login/Register) */}
                 <Route element={<PublicRoute />}>
@@ -87,6 +104,7 @@ const App = () => {
                     <Route path="/savings" element={<Savings />} />
                     <Route path="/insights" element={<Insights />} />
                     <Route path="/profile" element={<Profile />} />
+                    <Route path="/assistant" element={<Assistant />} />
                     
                     {/* Legal Routes also accessible here to keep Navbar */}
                     <Route path="/privacy" element={<PrivacyPolicy />} />

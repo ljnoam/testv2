@@ -10,6 +10,7 @@ export interface UserSettings {
   analytics_opt_in: boolean;
   marketing_opt_in: boolean;
   cookie_consent: boolean;
+  ai_financial_consent?: boolean; // New field for AI Assistant
   created_at: string;
   display_name?: string;
   avatar_url?: string;
@@ -58,6 +59,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             analytics_opt_in: false,
             marketing_opt_in: false,
             cookie_consent: false,
+            ai_financial_consent: false,
             created_at: new Date().toISOString()
         };
         try {

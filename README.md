@@ -9,18 +9,19 @@ Ce projet est optimisé pour être déployé sur [Vercel](https://vercel.com).
 1. **Forkez/Clonez** ce dépôt sur votre GitHub.
 2. Créez un nouveau projet sur **Vercel** et importez votre dépôt.
 3. Dans la configuration du projet sur Vercel, allez dans **Environment Variables**.
-4. Ajoutez les variables suivantes (trouvées dans votre Console Firebase > Project Settings) :
+4. Ajoutez les variables suivantes (trouvées dans votre Console Firebase > Project Settings).
+   **Important :** Utilisez le préfixe `VITE_` pour que l'application fonctionne correctement.
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | Votre clé API Web |
-| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Domaine Auth (ex: projet.firebaseapp.com) |
-| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | ID du projet |
-| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | ID expéditeur (numérique) |
-| `NEXT_PUBLIC_FIREBASE_APP_ID` | ID de l'application (1:...) |
-| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | ID Analytics (G-...) |
+| `VITE_FIREBASE_API_KEY` | Votre clé API Web |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Domaine Auth (ex: projet.firebaseapp.com) |
+| `VITE_FIREBASE_PROJECT_ID` | ID du projet |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | ID expéditeur (numérique) |
+| `VITE_FIREBASE_APP_ID` | ID de l'application (1:...) |
+| `VITE_FIREBASE_MEASUREMENT_ID` | ID Analytics (G-...) |
 
-> **⚠️ Important** : Si vous rencontrez une erreur `auth/invalid-api-key` ou un écran blanc, vérifiez que ces variables sont bien définies dans Vercel et que vous avez redéployé le projet après les avoir ajoutées.
+5. Une fois les variables ajoutées, **Redéployez** le projet (onglet Deployments > Redeploy) pour qu'elles soient prises en compte.
 
 ## 🛠️ Installation Locale
 
@@ -35,7 +36,7 @@ Ce projet est optimisé pour être déployé sur [Vercel](https://vercel.com).
    npm install
    ```
 
-3. Créez un fichier `.env.local` à la racine (utilisez `.env.example` comme modèle) et remplissez vos clés Firebase.
+3. Créez un fichier `.env.local` à la racine (utilisez `.env.example` comme modèle) et remplissez vos clés Firebase avec le préfixe `VITE_`.
 
 4. Lancez le serveur de développement :
    ```bash

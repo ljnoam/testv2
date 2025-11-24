@@ -2,7 +2,6 @@ import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, setPersistence, browserLocalPersistence, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
-// Helper sécurisé pour récupérer les variables d'environnement
 // Supporte Vite (import.meta.env), Next.js/CRA (process.env)
 const getEnv = (key: string): string | undefined => {
   try {
@@ -40,37 +39,25 @@ let auth: Auth;
 let db: Firestore;
 let isInitialized = false;
 
-// Validation stricte
-const validateConfig = () => {
-  return !!firebaseConfig.apiKey && !!firebaseConfig.authDomain && !!firebaseConfig.projectId;
-};
+try {
+  app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+  auth = getAuth(app);
+  db = getFirestore(app);
 
-if (validateConfig()) {
-  try {
-    // Initialisation Singleton
-    app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-    auth = getAuth(app);
-    db = getFirestore(app);
-    
-    // Configuration de la persistance
-    setPersistence(auth, browserLocalPersistence).catch((err) => {
-      console.warn("Auth persistence warning:", err);
-    });
-    
-    isInitialized = true;
-  } catch (error) {
-    console.error("Firebase initialization failed:", error);
-  }
-} else {
-  console.warn("Firebase configuration missing. App running in offline/demo mode UI.");
-  // Fallback objets vides pour éviter les crashs immédiats d'import
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn("Auth persistence warning:", err);
+  });
+
+  isInitialized = true;
+} catch (error) {
+  console.error("Firebase initialization failed:", error);
+  // fallback minimal
   // @ts-ignore
-  app = {}; 
+  app = {};
   // @ts-ignore
-  auth = {}; 
+  auth = {};
   // @ts-ignore
   db = {};
 }
 
 export { app, auth, db, isInitialized };
-export default app;

@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { useData } from '../../lib/dataContext';
-import { LightbulbIcon, TrendingUpIcon, EditIcon, AlertTriangleIcon, CheckCircleIcon, TargetIcon, PlusIcon, TrashIcon } from '../../components/ui/Icons';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { useData, Transaction } from '../../lib/dataContext';
+import { LightbulbIcon, TrendingUpIcon, EditIcon, AlertTriangleIcon, CheckCircleIcon, TargetIcon, PlusIcon, TrashIcon, CalendarIcon, ChevronRightIcon } from '../../components/ui/Icons';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { BarChart } from '../../components/ui/Charts';
 
 export const Insights = () => {
-  const { budgets, insights, loading, updateBudget, categories, addCategory } = useData();
+  const { budgets, insights, transactions, loading, updateBudget, categories, addCategory, getCategoryStyles } = useData();
   
   // State for Managing Budgets
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
@@ -16,6 +18,9 @@ export const Insights = () => {
   // State for adding a new budget line in the modal
   const [newBudgetCat, setNewBudgetCat] = useState('');
   const [newBudgetLimit, setNewBudgetLimit] = useState('');
+
+  // State for Drill-down (Detail View)
+  const [selectedBudgetCategory, setSelectedBudgetCategory] = useState<string | null>(null);
 
   // Init local state when modal opens
   useEffect(() => {
@@ -36,13 +41,6 @@ export const Insights = () => {
 
   const handleDeleteBudget = (index: number) => {
       const copy = [...editedBudgets];
-      // Mark for deletion by removing from list. 
-      // Note: Actual DB deletion happens on save if we track diffs, 
-      // or we can set limit to -1 to signal deletion in our updateBudget logic.
-      // For simplicity in UI, we remove it from UI list. 
-      // To sync with DB, we need to know which ones were removed.
-      // Let's change strategy: Update immediately or track deletions?
-      // Strategy: We will process the full list on save. If a category from original `budgets` is missing in `editedBudgets`, we delete it.
       copy.splice(index, 1);
       setEditedBudgets(copy);
   };
@@ -50,9 +48,14 @@ export const Insights = () => {
   const handleAddBudgetLine = async () => {
       if (!newBudgetCat || !newBudgetLimit) return;
       
-      // If category doesn't exist globally, add it
-      if (!categories.includes(newBudgetCat)) {
-          await addCategory(newBudgetCat);
+      // If category doesn't exist globally, add it (using default settings)
+      if (!categories.find(c => c.name === newBudgetCat)) {
+          await addCategory({
+              id: newBudgetCat,
+              name: newBudgetCat,
+              icon: '🏷️',
+              color: 'bg-slate-100 text-slate-600'
+          });
       }
 
       setEditedBudgets(prev => [...prev, { category: newBudgetCat, limit: newBudgetLimit }]);
@@ -77,7 +80,7 @@ export const Insights = () => {
           const currentCategoryNames = editedBudgets.map(b => b.category);
           const deletePromises = budgets
             .filter(b => !currentCategoryNames.includes(b.category))
-            .map(b => updateBudget(b.category, -1)); // -1 triggers deletion in DataContext
+            .map(b => updateBudget(b.category, -1));
 
           await Promise.all([...updatePromises, ...deletePromises]);
           setIsManageModalOpen(false);
@@ -87,6 +90,41 @@ export const Insights = () => {
           setIsSubmitting(false);
       }
   };
+
+  // --- Logic for Drill Down ---
+  const selectedBudgetDetails = useMemo(() => {
+      if (!selectedBudgetCategory) return null;
+      
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+
+      // Filter transactions for this month & category
+      const relevantTransactions = transactions.filter(t => 
+          t.category === selectedBudgetCategory && 
+          t.type === 'expense' &&
+          t.date.getMonth() === currentMonth &&
+          t.date.getFullYear() === currentYear
+      ).sort((a, b) => b.date.getTime() - a.date.getTime());
+
+      // Prepare Chart Data (Group by Day)
+      const daysMap: Record<number, number> = {};
+      relevantTransactions.forEach(t => {
+          const day = t.date.getDate();
+          daysMap[day] = (daysMap[day] || 0) + t.amount;
+      });
+
+      // Fill last 7 days or relevant days for chart
+      const chartData = Object.entries(daysMap)
+        .map(([day, val]) => ({ label: day, value: val }))
+        .sort((a,b) => parseInt(a.label) - parseInt(b.label));
+
+      return {
+          transactions: relevantTransactions,
+          chartData
+      };
+  }, [selectedBudgetCategory, transactions]);
+
 
   if (loading) {
     return (
@@ -193,52 +231,71 @@ export const Insights = () => {
            
            <div className="space-y-4">
              {budgets.map((budget) => {
+                // Logic for Projection
+                const now = new Date();
+                const currentDay = Math.max(1, now.getDate());
+                const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                
+                // Projection linéaire
+                const projection = (budget.spent / currentDay) * daysInMonth;
+                const isProjectedOver = projection > budget.limit;
+
                 const percent = Math.min(100, budget.pct * 100);
                 const isOver = budget.spent > budget.limit;
                 
-                // Colors
+                // Colors Dynamic
                 let progressColor = 'bg-indigo-500';
                 let trackColor = 'bg-slate-100 dark:bg-slate-800';
                 let textColor = 'text-slate-900 dark:text-white';
+                let statusText = null;
                 
                 if (isOver) {
                     progressColor = 'bg-red-500';
                     trackColor = 'bg-red-50 dark:bg-red-900/20';
                     textColor = 'text-red-600 dark:text-red-400';
-                } else if (percent > 85) {
-                    progressColor = 'bg-orange-500';
+                    statusText = "Budget dépassé";
+                } else if (percent > 85 || (percent > 50 && isProjectedOver)) {
+                    progressColor = 'bg-yellow-500';
+                    trackColor = 'bg-yellow-50 dark:bg-yellow-900/20';
+                    textColor = 'text-yellow-700 dark:text-yellow-400';
+                    if (isProjectedOver) statusText = "Risque de dépassement";
                 } else if (percent < 50) {
                     progressColor = 'bg-emerald-500';
                 }
 
+                const catStyles = getCategoryStyles(budget.category);
+
                 return (
-                  <div key={budget.id} className="bg-white dark:bg-slate-900 p-5 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-800 relative transition-transform active:scale-[0.99]">
+                  <div 
+                    key={budget.id} 
+                    onClick={() => setSelectedBudgetCategory(budget.category)}
+                    className="bg-white dark:bg-slate-900 p-5 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-800 relative transition-transform active:scale-[0.99] cursor-pointer group hover:shadow-md"
+                  >
                      <div className="flex justify-between items-center mb-4">
                         <div className="flex items-center gap-3">
-                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${isOver ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'} dark:bg-slate-800 dark:text-slate-300`}>
-                               {budget.category.includes('Alimentation') ? '🍔' : 
-                                budget.category.includes('Transport') ? '🚗' : 
-                                budget.category.includes('Loisirs') ? '🍿' : 
-                                budget.category.includes('Shopping') ? '🛍️' : '🏷️'}
+                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${catStyles.color} shadow-sm group-hover:scale-110 transition-transform`}>
+                               {catStyles.icon}
                            </div>
                            <div>
                                <p className={`font-bold ${textColor}`}>{budget.category}</p>
-                               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                                   {isOver 
-                                    ? <span className="text-red-500 font-bold">Budget dépassé !</span>
-                                    : <span>Reste <span className="font-bold text-slate-700 dark:text-slate-300">{Math.max(0, budget.limit - budget.spent).toLocaleString()}€</span></span>
-                                   }
-                               </p>
+                               {statusText ? (
+                                   <p className="text-xs font-bold text-red-500 dark:text-red-400 animate-pulse">{statusText}</p>
+                               ) : (
+                                   <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                       Reste <span className="font-bold text-slate-700 dark:text-slate-300">{Math.max(0, budget.limit - budget.spent).toLocaleString()}€</span>
+                                   </p>
+                               )}
                            </div>
                         </div>
                         <div className="text-right">
-                            <span className={`font-bold block text-lg ${isOver ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
-                                {Math.round(percent)}%
+                             <ChevronRightIcon className="w-5 h-5 text-slate-300 group-hover:text-indigo-500 transition-colors ml-auto mb-1" />
+                            <span className={`font-bold block text-sm ${isOver ? 'text-red-600' : 'text-slate-900 dark:text-white'}`}>
+                                {budget.spent.toLocaleString()} / {budget.limit.toLocaleString()} €
                             </span>
                         </div>
                      </div>
                      
-                     <div className={`w-full h-4 rounded-full overflow-hidden ${trackColor}`}>
+                     <div className={`w-full h-4 rounded-full overflow-hidden ${trackColor} mb-2`}>
                         <div 
                           className={`h-full rounded-full transition-all duration-700 ease-out relative ${progressColor}`}
                           style={{ width: `${percent}%` }}
@@ -248,16 +305,61 @@ export const Insights = () => {
                         </div>
                      </div>
                      
-                     <div className="flex justify-between mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                        <span>0 €</span>
-                        <span>{budget.limit.toLocaleString()} €</span>
-                     </div>
+                     {/* Projection Line */}
+                     {!isOver && budget.spent > 0 && (
+                        <div className="flex justify-between items-center text-[10px] font-medium text-slate-400">
+                             <span className="flex items-center gap-1">
+                                 <TrendingUpIcon className="w-3 h-3" /> Projection: {Math.round(projection)}€
+                             </span>
+                             <span>{Math.round(percent)}%</span>
+                        </div>
+                     )}
                   </div>
                 );
              })}
            </div>
         </section>
       </main>
+
+      {/* Drill-down Modal (Detail View) */}
+      <Modal 
+         isOpen={!!selectedBudgetCategory} 
+         onClose={() => setSelectedBudgetCategory(null)} 
+         title={selectedBudgetCategory || 'Détail'}
+      >
+        <div className="pt-2 h-[60vh] flex flex-col">
+            {selectedBudgetDetails && selectedBudgetDetails.transactions.length > 0 ? (
+                <>
+                    {/* Mini Chart */}
+                    <div className="mb-6 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Dépenses quotidiennes (Ce mois)</p>
+                        <BarChart data={selectedBudgetDetails.chartData} height={120} />
+                    </div>
+
+                    {/* History List */}
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 px-1">Historique Récent</p>
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                        {selectedBudgetDetails.transactions.map(t => (
+                            <div key={t.id} className="flex justify-between items-center p-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
+                                <div>
+                                    <p className="font-bold text-sm text-slate-900 dark:text-white">{t.title}</p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                        <CalendarIcon className="w-3 h-3" />
+                                        {t.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                                    </p>
+                                </div>
+                                <span className="font-bold text-sm text-slate-900 dark:text-white">-{t.amount.toLocaleString()} €</span>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                    <p>Aucune dépense ce mois-ci pour {selectedBudgetCategory}.</p>
+                </div>
+            )}
+        </div>
+      </Modal>
 
       {/* Manage Budgets Modal */}
       <Modal 
@@ -272,13 +374,12 @@ export const Insights = () => {
                     Ajustez vos plafonds ou supprimez des budgets existants.
                 </p>
                 {editedBudgets.length > 0 ? (
-                    editedBudgets.map((b, i) => (
+                    editedBudgets.map((b, i) => {
+                        const styles = getCategoryStyles(b.category);
+                        return (
                         <div key={b.category} className="flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: `${i * 50}ms` }}>
-                            <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 text-lg">
-                                {b.category.includes('Alimentation') ? '🍔' : 
-                                b.category.includes('Transport') ? '🚗' : 
-                                b.category.includes('Loisirs') ? '🍿' : 
-                                b.category.includes('Shopping') ? '🛍️' : '🏷️'}
+                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-lg ${styles.color}`}>
+                                {styles.icon}
                             </div>
                             <div className="flex-1">
                                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase block mb-1">{b.category}</label>
@@ -300,7 +401,7 @@ export const Insights = () => {
                                 <TrashIcon className="w-5 h-5" />
                             </button>
                         </div>
-                    ))
+                    )})
                 ) : (
                     <p className="text-center text-slate-400 py-4">Aucun budget défini.</p>
                 )}
@@ -316,11 +417,9 @@ export const Insights = () => {
                         className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white outline-none"
                       >
                           <option value="">Choisir catégorie...</option>
-                          {categories.filter(c => !editedBudgets.find(eb => eb.category === c)).map(c => (
-                              <option key={c} value={c}>{c}</option>
+                          {categories.filter(c => !editedBudgets.find(eb => eb.category === c.name)).map(c => (
+                              <option key={c.id} value={c.name}>{c.name}</option>
                           ))}
-                          {/* Allow entering custom if not in list (simplified UI: just rely on existing cats for now, 
-                              or allow "Autre" which is in defaults. To add brand new, use Manage Categories) */}
                       </select>
                       <input 
                         type="number" 

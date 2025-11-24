@@ -15,11 +15,18 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './authContext';
+import { isPWA, localDB, syncManager } from './offline';
 
 // --- Types ---
 export type TransactionType = 'expense' | 'income';
-// On passe à un type string pour permettre les catégories personnalisées
 export type Category = string; 
+
+export interface CategoryItem {
+    id: string; 
+    name: string;
+    icon: string;
+    color: string; 
+}
 
 export interface Transaction {
   id: string;
@@ -43,8 +50,8 @@ export interface Budget {
   id: string;
   category: string;
   limit: number;
-  spent: number; // Calculated field
-  pct: number;   // Calculated field
+  spent: number; 
+  pct: number;
 }
 
 export interface Insight {
@@ -61,21 +68,23 @@ interface DataContextType {
   savingsGoals: SavingsGoal[];
   budgets: Budget[];
   insights: Insight[];
-  categories: string[];
+  categories: CategoryItem[];
   loading: boolean;
+  isOfflineMode: boolean; 
   addTransaction: (t: Omit<Transaction, 'id'>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   updateTransaction: (t: Transaction) => Promise<void>;
   addSavingsGoal: (g: Omit<SavingsGoal, 'id' | 'currentAmount'>) => Promise<void>;
   addToSavings: (id: string, amount: number) => Promise<void>;
   updateBudget: (category: string, limit: number) => Promise<void>;
-  addCategory: (category: string) => Promise<void>;
-  deleteCategory: (category: string) => Promise<void>;
+  addCategory: (category: CategoryItem) => Promise<void>;
+  deleteCategory: (categoryName: string) => Promise<void>;
   stats: {
     income: number;
     expense: number;
     balance: number;
   };
+  getCategoryStyles: (name: string) => { icon: string, color: string };
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -86,257 +95,318 @@ export const useData = () => {
   return context;
 };
 
-const DEFAULT_CATEGORIES = ['Alimentation', 'Transport', 'Loisirs', 'Logement', 'Santé', 'Salaire', 'Shopping', 'Autre'];
+// --- Helper for Robust Date Parsing ---
+const toJSDate = (val: any): Date => {
+    if (!val) return new Date();
+    if (val.toDate && typeof val.toDate === 'function') return val.toDate(); // Firestore Timestamp
+    if (val instanceof Date) return val;
+    if (typeof val === 'string' || typeof val === 'number') return new Date(val); // ISO String or Timestamp
+    return new Date();
+};
+
+const DEFAULT_CATEGORIES_DATA: CategoryItem[] = [
+    { id: 'Alimentation', name: 'Alimentation', icon: '🍔', color: 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400' },
+    { id: 'Transport', name: 'Transport', icon: '🚗', color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' },
+    { id: 'Loisirs', name: 'Loisirs', icon: '🍿', color: 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' },
+    { id: 'Logement', name: 'Logement', icon: '🏠', color: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' },
+    { id: 'Santé', name: 'Santé', icon: '💊', color: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' },
+    { id: 'Salaire', name: 'Salaire', icon: '💰', color: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' },
+    { id: 'Shopping', name: 'Shopping', icon: '🛍️', color: 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400' },
+    { id: 'Autre', name: 'Autre', icon: '📄', color: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
+];
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, loading: authLoading } = useAuth();
-  
+  const isPwaMode = isPWA();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // Data State
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [rawBudgets, setRawBudgets] = useState<{id: string, category: string, limit: number}[]>([]);
-  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState<CategoryItem[]>(DEFAULT_CATEGORIES_DATA);
   
-  // Granular loading states
-  const [isUserInitialized, setIsUserInitialized] = useState(false);
-  const [txLoading, setTxLoading] = useState(true);
-  const [goalsLoading, setGoalsLoading] = useState(true);
-  const [budgetsLoading, setBudgetsLoading] = useState(true);
-  const [catsLoading, setCatsLoading] = useState(true);
+  // Loading States
+  const [loading, setLoading] = useState(true);
 
-  // 1. Initialize User Document (Sequence Start)
+  // Network Listeners
   useEffect(() => {
-    if (authLoading) return;
-    
-    if (!user) {
-      // Cleanup if logged out
-      setTransactions([]);
-      setSavingsGoals([]);
-      setRawBudgets([]);
-      setCategories(DEFAULT_CATEGORIES);
-      setIsUserInitialized(false);
-      setTxLoading(true);
-      setGoalsLoading(true);
-      setBudgetsLoading(true);
-      setCatsLoading(true);
-      return;
-    }
+      const handleOnline = () => {
+          setIsOnline(true);
+          if (isPwaMode) syncManager.processQueue();
+      };
+      const handleOffline = () => setIsOnline(false);
 
-    let mounted = true;
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      return () => {
+          window.removeEventListener('online', handleOnline);
+          window.removeEventListener('offline', handleOffline);
+      };
+  }, [isPwaMode]);
 
-    const initUser = async () => {
-      const userRef = doc(db, 'users', user.uid);
-      try {
-        const snap = await getDoc(userRef);
-        if (!snap.exists()) {
-          await setDoc(userRef, { 
-            email: user.email, 
-            createdAt: new Date().toISOString() 
-          });
-        }
-        if (mounted) setIsUserInitialized(true);
-      } catch (err: any) {
-        console.error("Error initializing user:", err);
-        if (err.code === 'permission-denied') {
-            if (mounted) {
-                setTxLoading(false);
-                setGoalsLoading(false);
-                setBudgetsLoading(false);
-                setCatsLoading(false);
-            }
-        }
+  // --- DATA LOADING STRATEGY ---
+  useEffect(() => {
+      if (authLoading) return;
+      if (!user) {
+          setTransactions([]);
+          setSavingsGoals([]);
+          setRawBudgets([]);
+          setCategories(DEFAULT_CATEGORIES_DATA);
+          setLoading(false);
+          return;
       }
-    };
-    initUser();
 
-    return () => { mounted = false; };
-  }, [user, authLoading]);
+      setLoading(true);
 
-  // 2. Sync Transactions
-  useEffect(() => {
-    if (!user || !isUserInitialized) return;
+      if (isPwaMode) {
+          // === PWA OFFLINE-FIRST STRATEGY ===
+          
+          const loadLocal = async () => {
+              const [txs, bgs, goals, cats] = await Promise.all([
+                  localDB.getAll<Transaction>('transactions'),
+                  localDB.getAll<{category: string, limit: number}>('budgets'),
+                  localDB.getAll<SavingsGoal>('savings_goals'),
+                  localDB.getAll<CategoryItem>('categories'),
+              ]);
+              
+              setTransactions(txs.map(t => ({...t, date: toJSDate(t.date)})).sort((a,b) => b.date.getTime() - a.date.getTime()));
+              setRawBudgets(bgs.map(b => ({ id: b.category, ...b })));
+              setSavingsGoals(goals);
+              if (cats.length > 0) setCategories(cats);
+              
+              setLoading(false); 
+          };
 
-    const q = query(
-      collection(db, 'users', user.uid, 'transactions'),
-      orderBy('date', 'desc')
-    );
+          loadLocal();
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          date: data.date instanceof Timestamp ? data.date.toDate() : new Date(data.date)
-        };
-      }) as Transaction[];
-      setTransactions(docs);
-      setTxLoading(false);
-    }, (err) => {
-      console.error("Transactions listener error:", err);
-      setTxLoading(false); 
-    });
-
-    return () => unsubscribe();
-  }, [user, isUserInitialized]);
-
-  // 3. Sync Savings Goals
-  useEffect(() => {
-    if (!user || !isUserInitialized) return;
-
-    const q = collection(db, 'users', user.uid, 'savings_goals');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as SavingsGoal[];
-      setSavingsGoals(docs);
-      setGoalsLoading(false);
-    }, (err) => {
-      console.error("Savings listener error:", err);
-      setGoalsLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [user, isUserInitialized]);
-
-  // 4. Sync Budgets
-  useEffect(() => {
-    if (!user || !isUserInitialized) return;
-
-    const q = collection(db, 'users', user.uid, 'budgets');
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-        const docs = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        })) as {id: string, category: string, limit: number}[];
-        
-        if (docs.length === 0 && !snapshot.metadata.fromCache) {
-             const batch = writeBatch(db);
-             const defaults = [
-                 { category: 'Alimentation', limit: 400 },
-                 { category: 'Loisirs', limit: 150 },
-                 { category: 'Transport', limit: 100 },
-                 { category: 'Shopping', limit: 200 },
-             ];
-             defaults.forEach(d => {
-                 const ref = doc(db, 'users', user.uid, 'budgets', d.category);
-                 batch.set(ref, d);
+          if (navigator.onLine) {
+             const unsubT = onSnapshot(collection(db, 'users', user.uid, 'transactions'), (snap) => {
+                 const docs = snap.docs.map(d => ({ 
+                     id: d.id, ...d.data(), date: toJSDate(d.data().date) 
+                 })) as Transaction[];
+                 setTransactions(docs.sort((a,b) => b.date.getTime() - a.date.getTime()));
+                 localDB.clear('transactions').then(() => {
+                    docs.forEach(d => localDB.put('transactions', d));
+                 });
              });
-             try {
-                await batch.commit();
-             } catch(e) { console.warn("Could not create default budgets", e); }
-        } else {
-            setRawBudgets(docs);
-        }
-        setBudgetsLoading(false);
-    }, (err) => {
-      console.error("Budgets listener error:", err);
-      setBudgetsLoading(false);
-    });
-    return () => unsubscribe();
-  }, [user, isUserInitialized]);
 
-  // 5. Sync Categories (Stored in settings doc)
-  useEffect(() => {
-    if (!user || !isUserInitialized) return;
-    const catsRef = doc(db, 'users', user.uid, 'settings', 'categories');
-    
-    const unsubscribe = onSnapshot(catsRef, async (snap) => {
-        if (snap.exists()) {
-            const data = snap.data();
-            if (data.list && Array.isArray(data.list)) {
-                setCategories(data.list);
-            }
-        } else {
-            // Create default if not exists
-            try {
-                await setDoc(catsRef, { list: DEFAULT_CATEGORIES });
-                setCategories(DEFAULT_CATEGORIES);
-            } catch (e) {
-                console.warn("Could not init categories", e);
-            }
-        }
-        setCatsLoading(false);
-    }, (err) => {
-        console.error("Categories fetch error", err);
-        setCatsLoading(false);
-    });
+             const unsubB = onSnapshot(collection(db, 'users', user.uid, 'budgets'), (snap) => {
+                 const docs = snap.docs.map(d => ({ id: d.id, category: d.id, ...d.data() })) as any;
+                 setRawBudgets(docs);
+                 localDB.clear('budgets').then(() => {
+                    docs.forEach((d: any) => localDB.put('budgets', { category: d.category, limit: d.limit }));
+                 });
+             });
 
-    return () => unsubscribe();
-  }, [user, isUserInitialized]);
+             const unsubG = onSnapshot(collection(db, 'users', user.uid, 'savings_goals'), (snap) => {
+                 const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })) as SavingsGoal[];
+                 setSavingsGoals(docs);
+                 localDB.clear('savings_goals').then(() => {
+                    docs.forEach(d => localDB.put('savings_goals', d));
+                 });
+             });
+
+             const unsubC = onSnapshot(doc(db, 'users', user.uid, 'settings', 'categories'), (snap) => {
+                 if (snap.exists() && snap.data().items) {
+                     setCategories(snap.data().items);
+                     localDB.clear('categories').then(() => {
+                        snap.data().items.forEach((c: CategoryItem) => localDB.put('categories', c));
+                     });
+                 }
+             });
+
+             syncManager.processQueue();
+
+             return () => { unsubT(); unsubB(); unsubG(); unsubC(); };
+          }
+
+      } else {
+          // === STANDARD WEB STRATEGY ===
+          
+          const qT = query(collection(db, 'users', user.uid, 'transactions'), orderBy('date', 'desc'));
+          const unsubT = onSnapshot(qT, (snap) => {
+              setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data(), date: toJSDate(d.data().date) })) as Transaction[]);
+          });
+
+          const unsubB = onSnapshot(collection(db, 'users', user.uid, 'budgets'), (snap) => {
+             setRawBudgets(snap.docs.map(d => ({ id: d.id, category: d.id, ...d.data() })) as any);
+          });
+
+          const unsubG = onSnapshot(collection(db, 'users', user.uid, 'savings_goals'), (snap) => {
+             setSavingsGoals(snap.docs.map(d => ({ id: d.id, ...d.data() })) as SavingsGoal[]);
+          });
+
+          const unsubC = onSnapshot(doc(db, 'users', user.uid, 'settings', 'categories'), (snap) => {
+              if (snap.exists() && snap.data().items) setCategories(snap.data().items);
+          });
+
+          // Optimistic loading false to show skeletons/empty states while waiting for network
+          setLoading(false);
+          return () => { unsubT(); unsubB(); unsubG(); unsubC(); };
+      }
+  }, [user, authLoading, isPwaMode, isOnline]);
 
 
-  // --- CRUD Operations ---
+  // --- CRUD ACTIONS ---
+
+  const generateId = () => doc(collection(db, 'dummy')).id;
 
   const addTransaction = async (t: Omit<Transaction, 'id'>) => {
     if (!user) return;
-    await addDoc(collection(db, 'users', user.uid, 'transactions'), {
-      ...t,
-      date: Timestamp.fromDate(t.date)
-    });
+    const newId = generateId();
+    const fullTransaction = { ...t, id: newId };
+
+    if (isPwaMode) {
+        setTransactions(prev => [fullTransaction, ...prev]);
+        await localDB.put('transactions', fullTransaction);
+        await syncManager.queueAction({
+            type: 'ADD_TRANSACTION',
+            payload: fullTransaction,
+            userId: user.uid
+        });
+    } else {
+        await setDoc(doc(db, 'users', user.uid, 'transactions', newId), {
+            ...t,
+            date: Timestamp.fromDate(t.date)
+        });
+    }
   };
 
   const deleteTransaction = async (id: string) => {
     if (!user) return;
-    await deleteDoc(doc(db, 'users', user.uid, 'transactions', id));
+    if (isPwaMode) {
+        setTransactions(prev => prev.filter(t => t.id !== id));
+        await localDB.delete('transactions', id);
+        await syncManager.queueAction({
+            type: 'DELETE_TRANSACTION',
+            payload: { id },
+            userId: user.uid
+        });
+    } else {
+        await deleteDoc(doc(db, 'users', user.uid, 'transactions', id));
+    }
   };
 
   const updateTransaction = async (t: Transaction) => {
     if (!user) return;
-    const { id, ...data } = t;
-    await updateDoc(doc(db, 'users', user.uid, 'transactions', id), {
-      ...data,
-      date: Timestamp.fromDate(data.date)
-    });
+    if (isPwaMode) {
+        setTransactions(prev => prev.map(old => old.id === t.id ? t : old));
+        await localDB.put('transactions', t);
+        await syncManager.queueAction({
+            type: 'UPDATE_TRANSACTION',
+            payload: t,
+            userId: user.uid
+        });
+    } else {
+        await updateDoc(doc(db, 'users', user.uid, 'transactions', t.id), {
+            ...t,
+            date: Timestamp.fromDate(t.date)
+        });
+    }
   };
 
   const addSavingsGoal = async (g: Omit<SavingsGoal, 'id' | 'currentAmount'>) => {
     if (!user) return;
-    await addDoc(collection(db, 'users', user.uid, 'savings_goals'), {
-      ...g,
-      currentAmount: 0
-    });
+    const newId = generateId();
+    const fullGoal = { ...g, id: newId, currentAmount: 0 };
+
+    if (isPwaMode) {
+        setSavingsGoals(prev => [...prev, fullGoal]);
+        await localDB.put('savings_goals', fullGoal);
+        await syncManager.queueAction({
+            type: 'ADD_GOAL',
+            payload: fullGoal,
+            userId: user.uid
+        });
+    } else {
+        await setDoc(doc(db, 'users', user.uid, 'savings_goals', newId), { ...g, currentAmount: 0 });
+    }
   };
 
   const addToSavings = async (id: string, amount: number) => {
     if (!user) return;
-    const goalRef = doc(db, 'users', user.uid, 'savings_goals', id);
     const goal = savingsGoals.find(g => g.id === id);
-    if (goal) {
-      await updateDoc(goalRef, {
-        currentAmount: goal.currentAmount + amount
-      });
+    if (!goal) return;
+    const updated = { ...goal, currentAmount: goal.currentAmount + amount };
+
+    if (isPwaMode) {
+        setSavingsGoals(prev => prev.map(g => g.id === id ? updated : g));
+        await localDB.put('savings_goals', updated);
+        await syncManager.queueAction({
+            type: 'UPDATE_GOAL',
+            payload: { id, currentAmount: updated.currentAmount },
+            userId: user.uid
+        });
+    } else {
+        await updateDoc(doc(db, 'users', user.uid, 'savings_goals', id), {
+            currentAmount: updated.currentAmount
+        });
     }
   };
 
   const updateBudget = async (category: string, limit: number) => {
       if (!user) return;
-      if (limit < 0) {
-        // Implies deletion logic if handled by caller, but keeping clean update here.
-        // For deletion, use direct deleteDoc in component or separate method if needed.
-        // We will stick to standard setDoc which creates or overwrites.
-        await deleteDoc(doc(db, 'users', user.uid, 'budgets', category));
+      const payload = { category, limit };
+      if (isPwaMode) {
+          if (limit < 0) {
+              setRawBudgets(prev => prev.filter(b => b.category !== category));
+              await localDB.delete('budgets', category);
+          } else {
+              const exists = rawBudgets.find(b => b.category === category);
+              if (exists) {
+                  setRawBudgets(prev => prev.map(b => b.category === category ? { ...b, limit } : b));
+              } else {
+                  setRawBudgets(prev => [...prev, { id: category, category, limit }]);
+              }
+              await localDB.put('budgets', payload);
+          }
+          await syncManager.queueAction({
+              type: 'UPDATE_BUDGET',
+              payload,
+              userId: user.uid
+          });
       } else {
-        await setDoc(doc(db, 'users', user.uid, 'budgets', category), {
-            category,
-            limit
-        });
+          if (limit < 0) {
+            await deleteDoc(doc(db, 'users', user.uid, 'budgets', category));
+          } else {
+            await setDoc(doc(db, 'users', user.uid, 'budgets', category), payload);
+          }
       }
   };
 
-  const addCategory = async (category: string) => {
+  const addCategory = async (category: CategoryItem) => {
       if (!user) return;
-      if (categories.includes(category)) return;
-      const newList = [...categories, category];
-      await setDoc(doc(db, 'users', user.uid, 'settings', 'categories'), { list: newList }, { merge: true });
+      const newItems = [...categories, category];
+      if (isPwaMode) {
+          setCategories(newItems);
+          await localDB.put('categories', category); 
+          await syncManager.queueAction({
+              type: 'UPDATE_CATEGORIES',
+              payload: newItems,
+              userId: user.uid
+          });
+      } else {
+          await setDoc(doc(db, 'users', user.uid, 'settings', 'categories'), { items: newItems });
+      }
   };
 
-  const deleteCategory = async (category: string) => {
+  const deleteCategory = async (categoryName: string) => {
       if (!user) return;
-      const newList = categories.filter(c => c !== category);
-      await setDoc(doc(db, 'users', user.uid, 'settings', 'categories'), { list: newList }, { merge: true });
+      const newItems = categories.filter(c => c.name !== categoryName);
+      if (isPwaMode) {
+          setCategories(newItems);
+          const catToDelete = categories.find(c => c.name === categoryName);
+          if (catToDelete) await localDB.delete('categories', catToDelete.id);
+          await syncManager.queueAction({
+              type: 'UPDATE_CATEGORIES',
+              payload: newItems,
+              userId: user.uid
+          });
+      } else {
+          await setDoc(doc(db, 'users', user.uid, 'settings', 'categories'), { items: newItems });
+      }
   };
-
 
   // --- ENGINE: Calculated Logic ---
 
@@ -386,7 +456,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const currentMonthTotal = getMonthTotal(0);
       
-      // 1. Budget Alerts
       calculatedBudgets.forEach(b => {
           if (b.spent > b.limit) {
               results.push({
@@ -409,7 +478,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
       });
 
-      // 2. Spending Trends
       const lastMonthTotal = getMonthTotal(1);
       const twoMonthsAgoTotal = getMonthTotal(2);
       const threeMonthsAgoTotal = getMonthTotal(3);
@@ -431,23 +499,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   metric: `+${Math.round((diffVsAvg/average3Months)*100)}%`,
                   date: now
               });
-          } else if (projection < average3Months * 0.8) {
-               results.push({
-                  id: 'good-saving',
-                  type: 'success',
-                  title: 'Bonnes économies',
-                  message: `Continuez comme ça ! Vous dépensez moins que d'habitude.`,
-                  metric: `-${Math.round((1 - projection/average3Months)*100)}%`,
-                  date: now
-              });
           }
       }
-
       return results;
   }, [calculatedBudgets, transactions]);
 
-  // Combined loading state
-  const globalLoading = authLoading || (user ? (txLoading || goalsLoading || budgetsLoading || catsLoading) : false);
+  const getCategoryStyles = (name: string) => {
+      const cat = categories.find(c => c.name === name);
+      return cat ? { icon: cat.icon, color: cat.color } : { icon: '🏷️', color: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' };
+  };
 
   return (
     <DataContext.Provider value={{
@@ -456,7 +516,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       budgets: calculatedBudgets,
       insights,
       categories,
-      loading: globalLoading,
+      loading,
+      isOfflineMode: isPwaMode && !isOnline,
       addTransaction,
       deleteTransaction,
       updateTransaction,
@@ -465,7 +526,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updateBudget,
       addCategory,
       deleteCategory,
-      stats
+      stats,
+      getCategoryStyles
     }}>
       {children}
     </DataContext.Provider>

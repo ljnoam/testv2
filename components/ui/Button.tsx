@@ -13,12 +13,12 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props 
 }) => {
-  // Base: iOS style press effect (scale down slightly), rounded-xl for modern feel
-  const baseStyles = "w-full py-3 px-4 rounded-xl font-semibold transition-all duration-200 flex justify-center items-center active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed";
+  // Enhanced active scale for better tactile feel
+  const baseStyles = "w-full py-3 px-4 rounded-xl font-bold transition-all duration-150 flex justify-center items-center active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transform";
   
   const variants = {
     // Primary: Solid color, subtle standard shadow (no colored glow), hover darkens slightly
-    primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm active:opacity-90",
+    primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:shadow-indigo-500/20",
     
     // Secondary: Dark/Slate background, clean look
     secondary: "bg-slate-800 text-white hover:bg-slate-900 shadow-sm",
